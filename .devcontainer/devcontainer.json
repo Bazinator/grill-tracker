@@ -1,0 +1,30 @@
+{
+    "name": "Steak Tracker Dev Environment",
+    "build": {
+        "dockerfile": "Dockerfile"
+    },
+    // Require GPU passthrough when launching the devcontainer.
+    "runArgs": [
+        "--gpus=all"
+    ],
+    "containerEnv": {
+        "NVIDIA_VISIBLE_DEVICES": "all",
+        "NVIDIA_DRIVER_CAPABILITIES": "compute,utility"
+    },
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-vscode.cpptools",         // C++ Intelligence
+                "ms-vscode.cmake-tools",      // CMake support
+                "ms-python.python",           // Python Intelligence
+                "njpwerner.autodocstring",    // For your write-ups/docs
+                "twxs.cmake"                  // CMake language support
+            ]
+        }
+    },
+    "features": {
+        // Adds common utilities like git and zsh
+        "ghcr.io/devcontainers/features/common-utils:2.5.5": {}
+    },
+    "remoteUser": "vscode"
+}

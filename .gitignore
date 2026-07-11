@@ -1,0 +1,30 @@
+/data/
+
+# Local Python and tool state
+**/venv/
+__pycache__/
+*.py[cod]
+.ultralytics/
+
+# Generated training and inference output
+runs/
+**/runs/
+*.pt
+*.onnx
+perception/test_results*.json
+
+# Compiled binaries
+core-engine/reader_test
+core-engine/steak_consumer
+core-engine/*.exe
+
+# Video files
+*.avi
+*.m4v
+*.mkv
+*.mov
+*.mp4
+*.mpeg
+*.mpg
+*.ts
+*.webm
