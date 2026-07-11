@@ -78,13 +78,13 @@ Exit gate: a new checkout plus private weights/data can run both synthetic tests
 
 ### Phase 1 — trustworthy offline benchmark
 
-- [ ] Create a versioned clip manifest with train/validation/holdout groups.
-- [ ] Add sidecar ground truth for steak counts and key events.
-- [ ] Make the real-video runner produce one comparable JSON report per model/configuration.
-- [ ] Record model hash, thresholds, tracker rules, FPS, and clip manifest version in every report.
-- [ ] Add a review mode that renders model boxes and state-engine stable IDs onto saved clips.
+- [x] Create a versioned clip manifest supporting train, validation, holdout, and unassigned clips.
+- [ ] **Owner:** assign leakage-safe splits and add sidecar ground truth for steak counts and key events.
+- [x] Make the real-video runner produce one comparable JSON report per model/configuration.
+- [x] Record model hash, thresholds, tracker rules, FPS, and manifest version in every report.
+- [x] Add a review mode that renders model boxes and state-engine stable IDs onto saved clips.
 
-Exit gate: one command compares two model/configuration runs and the overlay makes failures visually inspectable.
+Exit gate: the automated benchmark and review output are ready; accuracy comparison remains blocked on owner-provided splits and ground truth.
 
 ### Phase 2 — calibrate detection and state rules
 

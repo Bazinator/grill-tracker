@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 
@@ -144,9 +145,17 @@ def _run_display_loop(model: YOLO, cap: cv2.VideoCapture) -> int:
     return frame_idx
 
 
-def _run_pipe_loop(model: YOLO, cap: cv2.VideoCapture) -> int:
+def _run_pipe_loop(
+    model: YOLO,
+    cap: cv2.VideoCapture,
+    confidence: float,
+    iou: float,
+    image_size: int,
+    detections_path: str | None,
+) -> int:
     """Run inference and write packed frames (count + N×SteakPacket) to stdout."""
     frame_idx = 0
+    detections_output = open(detections_path, "w", encoding="utf-8") if detections_path else None
     while cap.isOpened():
         success, frame = cap.read()
         if not success:
@@ -157,9 +166,9 @@ def _run_pipe_loop(model: YOLO, cap: cv2.VideoCapture) -> int:
             frame,
             persist=True,
             tracker=_TRACKER_CONFIG,
-            conf=0.4,
-            iou=0.4,
-            imgsz=640,
+            conf=confidence,
+            iou=iou,
+            imgsz=image_size,
             verbose=False,
         )
 
@@ -182,9 +191,13 @@ def _run_pipe_loop(model: YOLO, cap: cv2.VideoCapture) -> int:
                     }
                 )
 
+        if detections_output:
+            detections_output.write(json.dumps({"frame": frame_idx, "detections": state}) + "\n")
         sys.stdout.buffer.write(pack_frame(state))
         sys.stdout.buffer.flush()
 
+    if detections_output:
+        detections_output.close()
     return frame_idx
 
 
@@ -210,14 +223,21 @@ def run_display(model_path: str, video_path: str, headless: bool = False) -> Non
     cap.release()
 
 
-def run_pipe(model_path: str, video_path: str) -> None:
+def run_pipe(
+    model_path: str,
+    video_path: str,
+    confidence: float,
+    iou: float,
+    image_size: int,
+    detections_path: str | None,
+) -> None:
     """Pipe mode: no GUI; write packed frames to stdout, flush each frame."""
     model = YOLO(model_path)
     if not test_video_path(video_path):
         return
     cap = cv2.VideoCapture(video_path)
     print(f"[SYSTEM] Starting inference (pipe) on: {video_path}", file=sys.stderr)
-    _run_pipe_loop(model, cap)
+    _run_pipe_loop(model, cap, confidence, iou, image_size, detections_path)
     cap.release()
 
 
@@ -242,9 +262,20 @@ def main() -> None:
         action="store_true",
         help="No GUI; print inference results to stderr only (for Docker/CI)",
     )
+    parser.add_argument("--confidence", type=float, default=0.4)
+    parser.add_argument("--iou", type=float, default=0.4)
+    parser.add_argument("--image-size", type=int, default=640)
+    parser.add_argument("--detections", help="Optional raw-detection JSONL output")
     args = parser.parse_args()
     if args.pipe:
-        run_pipe(args.model, args.video)
+        run_pipe(
+            args.model,
+            args.video,
+            args.confidence,
+            args.iou,
+            args.image_size,
+            args.detections,
+        )
     else:
         run_display(args.model, args.video, headless=args.headless)
 

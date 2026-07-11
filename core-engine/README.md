@@ -51,6 +51,14 @@ Save to file:
 STEAK_STATS_PATH=stats.json ./steak_consumer < stream.bin 2>/dev/null
 ```
 
+Emit one JSON state event per frame for offline review or overlays:
+
+```bash
+STEAK_STATE_PATH=state.jsonl ./steak_consumer < stream.bin
+```
+
+Each line contains the frame number and active steaks with `stable_id`, centroid, confidence, and `miss_count`.
+
 ## Tests
 
 ```bash

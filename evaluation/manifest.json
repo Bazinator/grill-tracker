@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "clips": [
+    {"path": "add_steaks1.mp4", "split": "unassigned", "ground_truth": null},
+    {"path": "manic_grill1.mp4", "split": "unassigned", "ground_truth": null},
+    {"path": "remove_steaks1.mp4", "split": "unassigned", "ground_truth": null},
+    {"path": "stable_grill1.mp4", "split": "unassigned", "ground_truth": null},
+    {"path": "stable_grill2.mp4", "split": "unassigned", "ground_truth": null}
+  ]
+}

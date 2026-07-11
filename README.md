@@ -44,10 +44,14 @@ Evaluate the standard local clips and save a report:
 
 ```bash
 python3 perception/run_video_tests.py \
+  --manifest evaluation/manifest.json \
   --video-dir /path/to/clips \
   --model /path/to/best.pt \
-  --output runs/evaluation.json
+  --output runs/evaluation.json \
+  --reviews-dir runs/reviews
 ```
+
+The report records hashes for the model and manifest, inference/tracker settings, source-video metadata, processing FPS, and state-engine statistics. Review videos draw raw model boxes in green and stable state-engine IDs at their centroids. Clips remain `unassigned` in the committed manifest until an owner chooses leakage-safe train, validation, and holdout groups.
 
 See [`core-engine/TESTING.md`](core-engine/TESTING.md) for the scenario definitions and metric interpretation.
 

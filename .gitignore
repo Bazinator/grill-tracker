@@ -12,6 +12,8 @@ runs/
 *.pt
 *.onnx
 perception/test_results*.json
+*_artifacts/
+*.jsonl
 
 # Compiled binaries
 core-engine/reader_test

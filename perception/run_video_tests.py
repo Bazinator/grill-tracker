@@ -1,283 +1,244 @@
 #!/usr/bin/env python3
-"""
-Run pipeline tests on sample videos from data/rawfootage/shiftRecordings.
-Uses the same model path as testModel.py and outputs stats for each video.
+"""Run a reproducible, manifest-driven video benchmark."""
 
-Usage:
-  python3 perception/run_video_tests.py [--max-videos N] [--output stats_report.json]
-  python3 perception/run_video_tests.py --list-only  # Just list videos
-  python3 perception/run_video_tests.py --max-videos 1 --timeout 1800  # Test one video with 30min timeout
-
-Outputs per-video JSON stats from steak_consumer and a summary report.
-
-NOTE: YOLO inference on CPU is slow (~0.5-2 FPS). A 3-minute video (5400 frames) may take
-30-90 minutes on CPU. With GPU, expect ~30+ FPS. Adjust --timeout accordingly.
-For quick validation, use synthetic streams: python3 perception/generate_test_stream.py
-"""
 from __future__ import annotations
+
 import argparse
+import hashlib
 import json
 import os
 import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Optional
+
 import cv2
 
-# Sample videos to test (one from each folder + busygrill for variety)
-SAMPLE_VIDEOS = [
-    "add_steaks1.mp4",  # Likely has activity
-    "manic_grill1.mp4",
-    "remove_steaks1.mp4",
-    "stable_grill1.mp4",
-    "stable_grill2.mp4",
-]
+
+TRACKER_RULES = {"match_distance_px": 90, "dedupe_distance_px": 40, "max_age_frames": 25}
 
 
-def resolve_path(base: str, relative: str) -> str:
-    """Resolve a path relative to the script directory."""
-    script_dir = Path(__file__).parent.resolve()
-    return str((script_dir / relative).resolve())
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
-def get_video_info(video_path: str) -> dict:
-    """Return basic video metadata for display in test listing."""
-    info = {"frames": 0, "fps": 0.0, "duration_s": 0.0}
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        return info
-
-    frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
-    fps = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
-    duration_s = (frames / fps) if fps > 0 else 0.0
-    cap.release()
-
-    info["frames"] = frames
-    info["fps"] = round(fps, 2)
-    info["duration_s"] = round(duration_s, 2)
-    return info
+def load_manifest(path: Path) -> dict:
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(manifest.get("version"), int) or not isinstance(manifest.get("clips"), list):
+        raise ValueError("manifest requires integer 'version' and array 'clips'")
+    for clip in manifest["clips"]:
+        if not clip.get("path") or clip.get("split") not in {"train", "validation", "holdout", "unassigned"}:
+            raise ValueError("each clip requires path and split: train, validation, holdout, or unassigned")
+    return manifest
 
 
-def run_pipeline(video_path: str, model_path: str, timeout: int = 600) -> Optional[dict]:
-    """
-    Run the detection pipeline on a video and return stats.
-    Returns None if the pipeline fails or times out.
-    """
-    script_dir = Path(__file__).parent.resolve()
-    test_model = script_dir / "testModel.py"
-    steak_consumer = script_dir.parent / "core-engine" / "steak_consumer"
-    
-    # Error Handling
-    if not test_model.exists():
-        print(f"[ERROR] testModel.py not found at {test_model}", file=sys.stderr)
-        return None
-    if not steak_consumer.exists():
-        print(f"[ERROR] steak_consumer not found at {steak_consumer}", file=sys.stderr)
-        print("[INFO] Run 'cd core-engine && make' to build it", file=sys.stderr)
-        return None
-    if not os.path.exists(video_path):
-        print(f"[ERROR] Video not found: {video_path}", file=sys.stderr)
-        return None
-    if not os.path.exists(model_path):
-        print(f"[ERROR] Model not found: {model_path}", file=sys.stderr)
-        return None
-
-    cmd = (
-        f"python3 -u {test_model} --video {video_path} --model {model_path} 2>/dev/null | "
-        f"{steak_consumer} 2>&1"
-    )
-
-    start = time.time()
-    try:
-        result = subprocess.run(
-            cmd,
-            shell=True,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-        elapsed = time.time() - start
-
-        # Parse the JSON stats from the last line
-        lines = result.stdout.strip().split("\n")
-        for line in reversed(lines):
-            line = line.strip()
-            if line.startswith("{") and line.endswith("}"):
-                try:
-                    stats = json.loads(line)
-                    stats["elapsed_seconds"] = round(elapsed, 2)
-                    stats["video"] = os.path.basename(video_path)
-                    return stats
-                except json.JSONDecodeError:
-                    continue
-
-        print(f"[WARN] No valid JSON stats found for {video_path}", file=sys.stderr)
-        print(f"[DEBUG] stdout: {result.stdout}", file=sys.stderr)
-        print(f"[DEBUG] stderr: {result.stderr}", file=sys.stderr)
-        return None
-
-    except subprocess.TimeoutExpired:
-        print(f"[WARN] Timeout ({timeout}s) for {video_path}", file=sys.stderr)
-        return None
-    except Exception as e:
-        print(f"[ERROR] Pipeline failed for {video_path}: {e}", file=sys.stderr)
-        return None
+def video_info(path: Path) -> dict:
+    capture = cv2.VideoCapture(str(path))
+    if not capture.isOpened():
+        return {"frames": 0, "fps": 0.0, "duration_seconds": 0.0}
+    frames = int(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+    fps = float(capture.get(cv2.CAP_PROP_FPS) or 0.0)
+    capture.release()
+    return {
+        "frames": frames,
+        "fps": round(fps, 3),
+        "duration_seconds": round(frames / fps, 3) if fps else 0.0,
+    }
 
 
-def analyze_stats(stats: dict) -> dict:
-    """Analyze stats and add diagnostic notes."""
-    notes = []
-    
+def read_jsonl(path: Path) -> dict[int, dict]:
+    if not path.exists():
+        return {}
+    return {
+        item["frame"]: item
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip() and (item := json.loads(line))
+    }
+
+
+def render_review(video: Path, detections_path: Path, state_path: Path, output: Path) -> None:
+    detections = read_jsonl(detections_path)
+    states = read_jsonl(state_path)
+    capture = cv2.VideoCapture(str(video))
+    if not capture.isOpened():
+        raise RuntimeError(f"cannot open review video: {video}")
+    fps = capture.get(cv2.CAP_PROP_FPS) or 30.0
+    width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    output.parent.mkdir(parents=True, exist_ok=True)
+    writer = cv2.VideoWriter(str(output), cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
+    if not writer.isOpened():
+        raise RuntimeError(f"cannot create review video: {output}")
+
+    frame_number = 0
+    while True:
+        ok, frame = capture.read()
+        if not ok:
+            break
+        frame_number += 1
+        for detection in detections.get(frame_number, {}).get("detections", []):
+            x1, y1, x2, y2 = map(int, detection["bbox"])
+            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 220, 0), 2)
+            cv2.putText(frame, f"raw {detection['conf']:.2f}", (x1, max(18, y1 - 5)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 220, 0), 2)
+        for steak in states.get(frame_number, {}).get("steaks", []):
+            point = (int(steak["cx"]), int(steak["cy"]))
+            color = (0, 80, 255) if steak["miss_count"] else (255, 220, 0)
+            cv2.circle(frame, point, 7, color, -1)
+            cv2.putText(frame, f"ID {steak['stable_id']} m{steak['miss_count']}",
+                        (point[0] + 9, point[1]), cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2)
+        writer.write(frame)
+
+    capture.release()
+    writer.release()
+
+
+def analyze(stats: dict) -> dict:
     frames = stats.get("frames_processed", 0)
     packets = stats.get("packets_total", 0)
-    dedupes = stats.get("dedupes_total", 0)
-    max_grill = stats.get("max_grill_size", 0)
+    maximum = stats.get("max_grill_size", 0)
     cumulative = stats.get("cumulative_steaks", 0)
-    
-    # Detection rate
-    if frames > 0:
-        detection_rate = packets / frames
-        stats["detection_rate_per_frame"] = round(detection_rate, 2)
-        if detection_rate < 0.1:
-            notes.append("LOW_DETECTIONS: Model may not be detecting steaks well")
-    
-    # Dedupe rate
-    if packets > 0:
-        dedupe_rate = dedupes / packets
-        stats["dedupe_rate"] = round(dedupe_rate, 3)
-        if dedupe_rate > 0.3:
-            notes.append("HIGH_DEDUPE: Model produces many overlapping boxes")
-    
-    # ID stability
-    if cumulative > 0 and max_grill > 0:
-        id_ratio = cumulative / max_grill
-        stats["id_turnover_ratio"] = round(id_ratio, 2)
-        if id_ratio > 3:
-            notes.append("ID_FLICKER: Many IDs created vs max on grill (tune backend)")
-    
-    # Empty grill
-    if max_grill == 0 and frames > 100:
-        notes.append("EMPTY_GRILL: No steaks detected (check model or video content)")
-    
-    stats["diagnostic_notes"] = notes
+    stats["detection_rate_per_frame"] = round(packets / frames, 3) if frames else 0.0
+    stats["dedupe_rate"] = round(stats.get("dedupes_total", 0) / packets, 3) if packets else 0.0
+    stats["id_turnover_ratio"] = round(cumulative / maximum, 3) if maximum else 0.0
     return stats
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Run pipeline tests on sample videos")
-    parser.add_argument("--max-videos", type=int, default=5, help="Max videos to test")
-    parser.add_argument("--output", type=str, default=None, help="Output JSON report file")
-    parser.add_argument("--model", type=str, required=True, help="Path to YOLO weights")
-    parser.add_argument("--video-dir", type=str, required=True, help="Directory containing test videos")
-    parser.add_argument("--timeout", type=int, default=3600, help="Timeout per video in seconds (default 1 hour for CPU inference)")
-    parser.add_argument("--list-only", action="store_true", help="List videos only, don't run")
+def run_pipeline(
+    video: Path,
+    model: Path,
+    artifacts: Path,
+    confidence: float,
+    iou: float,
+    image_size: int,
+    timeout: int,
+) -> tuple[dict, Path, Path]:
+    root = Path(__file__).resolve().parent.parent
+    detector = root / "perception" / "testModel.py"
+    consumer = root / "core-engine" / "steak_consumer"
+    if not consumer.exists():
+        raise FileNotFoundError("core-engine/steak_consumer is missing; run make -C core-engine")
+
+    safe_name = video.stem.replace(" ", "_")
+    detections_path = artifacts / f"{safe_name}.detections.jsonl"
+    state_path = artifacts / f"{safe_name}.state.jsonl"
+    env = os.environ.copy()
+    env["STEAK_STATE_PATH"] = str(state_path)
+    start = time.monotonic()
+    state_process = subprocess.Popen(
+        [str(consumer)], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE, env=env,
+    )
+    inference_process = subprocess.Popen(
+        [sys.executable, "-u", str(detector), "--pipe", "--video", str(video),
+         "--model", str(model), "--confidence", str(confidence), "--iou", str(iou),
+         "--image-size", str(image_size), "--detections", str(detections_path)],
+        stdout=state_process.stdin, stderr=subprocess.DEVNULL,
+    )
+    state_process.stdin.close()
+    try:
+        inference_code = inference_process.wait(timeout=timeout)
+        stderr = state_process.stderr.read().decode("utf-8", errors="replace")
+        state_code = state_process.wait(timeout=max(1, timeout - (time.monotonic() - start)))
+    except subprocess.TimeoutExpired:
+        inference_process.kill()
+        state_process.kill()
+        raise TimeoutError(f"pipeline exceeded {timeout}s")
+    if inference_code or state_code:
+        raise RuntimeError(f"pipeline failed: inference={inference_code}, state={state_code}")
+    stats = next((json.loads(line) for line in reversed(stderr.splitlines())
+                  if line.startswith("{") and line.endswith("}")), None)
+    if not stats:
+        raise RuntimeError("state engine returned no statistics")
+    elapsed = time.monotonic() - start
+    stats.update({
+        "elapsed_seconds": round(elapsed, 3),
+        "processing_fps": round(stats["frames_processed"] / elapsed, 3) if elapsed else 0.0,
+    })
+    return analyze(stats), detections_path, state_path
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--manifest", type=Path, required=True)
+    parser.add_argument("--video-dir", type=Path, required=True)
+    parser.add_argument("--model", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--split", choices=["train", "validation", "holdout", "unassigned"])
+    parser.add_argument("--clip", help="Run one manifest clip by path")
+    parser.add_argument("--reviews-dir", type=Path)
+    parser.add_argument("--confidence", type=float, default=0.4)
+    parser.add_argument("--iou", type=float, default=0.4)
+    parser.add_argument("--image-size", type=int, default=640)
+    parser.add_argument("--timeout", type=int, default=3600)
+    parser.add_argument("--max-videos", type=int)
+    parser.add_argument("--list-only", action="store_true")
     args = parser.parse_args()
 
-    script_dir = Path(__file__).parent.resolve()
-    model_path = args.model
-    video_dir = args.video_dir
+    manifest = load_manifest(args.manifest)
+    clips = [clip for clip in manifest["clips"]
+             if (not args.split or clip["split"] == args.split)
+             and (not args.clip or clip["path"] == args.clip)]
+    if args.max_videos is not None:
+        clips = clips[:args.max_videos]
+    if not clips:
+        raise SystemExit("manifest contains no matching clips")
+    args.model = args.model.resolve()
+    if not args.model.exists():
+        raise SystemExit(f"model not found: {args.model}")
 
-    print(f"=== Video Pipeline Test ===")
-    print(f"Model: {model_path}")
-    print(f"Video dir: {video_dir}")
-    print(f"Max videos: {args.max_videos}")
-    print(f"Timeout per video: {args.timeout}s")
-    print()
-
-    # Collect videos to test
-    videos = []
-    for rel_path in SAMPLE_VIDEOS[:args.max_videos]:
-        full_path = os.path.join(video_dir, rel_path)
-        if os.path.exists(full_path):
-            videos.append(full_path)
-        else:
-            print(f"[SKIP] Video not found: {full_path}")
-
-    if not videos:
-        print("[ERROR] No valid videos found to test")
-        sys.exit(1)
-
-    # Show video info
-    print(f"Found {len(videos)} video(s):\n")
-    for v in videos:
-        info = get_video_info(v)
-        print(f"  {os.path.basename(v)}: {info['frames']} frames, {info['duration_s']}s @ {info['fps']}fps")
-    print()
+    artifacts = args.output.resolve().parent / f"{args.output.stem}_artifacts"
+    artifacts.mkdir(parents=True, exist_ok=True)
+    results = []
+    for clip in clips:
+        video = (args.video_dir / clip["path"]).resolve()
+        if not video.exists():
+            results.append({"clip": clip["path"], "split": clip["split"],
+                            "error": f"video not found: {video}"})
+            print(f"Missing {clip['path']}")
+            continue
+        info = video_info(video)
+        if args.list_only:
+            print(f"{clip['split']:10} {clip['path']} {info['frames']} frames")
+            continue
+        print(f"Running {clip['path']} ({clip['split']})")
+        try:
+            stats, detections, states = run_pipeline(
+                video, args.model, artifacts, args.confidence, args.iou,
+                args.image_size, args.timeout,
+            )
+            review = None
+            if args.reviews_dir:
+                review = args.reviews_dir / f"{video.stem}.review.mp4"
+                render_review(video, detections, states, review)
+            results.append({
+                "clip": clip["path"], "split": clip["split"],
+                "ground_truth": clip.get("ground_truth"), "video": info,
+                "stats": stats, "review": str(review) if review else None,
+            })
+        except Exception as error:
+            results.append({"clip": clip["path"], "split": clip["split"], "error": str(error)})
 
     if args.list_only:
-        print("--list-only specified, exiting without running tests")
         return
-
-    print(f"Testing {len(videos)} video(s)...\n")
-
-    results = []
-    for i, video_path in enumerate(videos, 1):
-        video_name = os.path.basename(video_path)
-        print(f"[{i}/{len(videos)}] Testing: {video_name}")
-        
-        stats = run_pipeline(video_path, model_path, timeout=args.timeout)
-        if stats:
-            stats = analyze_stats(stats)
-            results.append(stats)
-            
-            # Print summary
-            print(f"  frames={stats['frames_processed']} packets={stats['packets_total']} "
-                  f"dedupes={stats['dedupes_total']} max_grill={stats['max_grill_size']} "
-                  f"cumulative={stats['cumulative_steaks']} time={stats['elapsed_seconds']}s")
-            if stats.get("diagnostic_notes"):
-                for note in stats["diagnostic_notes"]:
-                    print(f"  -> {note}")
-        else:
-            print(f"  [FAILED]")
-        print()
-
-    # Summary
-    print("=== Summary ===")
-    if results:
-        total_frames = sum(r.get("frames_processed", 0) for r in results)
-        total_packets = sum(r.get("packets_total", 0) for r in results)
-        total_dedupes = sum(r.get("dedupes_total", 0) for r in results)
-        avg_grill = sum(r.get("max_grill_size", 0) for r in results) / len(results)
-        avg_cumulative = sum(r.get("cumulative_steaks", 0) for r in results) / len(results)
-        total_time = sum(r.get("elapsed_seconds", 0) for r in results)
-        
-        print(f"Videos tested: {len(results)}/{len(videos)}")
-        print(f"Total frames: {total_frames}")
-        print(f"Total packets: {total_packets}")
-        print(f"Total dedupes: {total_dedupes}")
-        print(f"Avg max_grill_size: {avg_grill:.1f}")
-        print(f"Avg cumulative_steaks: {avg_cumulative:.1f}")
-        print(f"Total time: {total_time:.1f}s")
-        
-        # Overall diagnostic
-        if total_packets == 0:
-            print("\n[DIAGNOSIS] No detections at all - check model path and training")
-        elif total_dedupes / max(1, total_packets) > 0.3:
-            print("\n[DIAGNOSIS] High dedupe rate - model may need NMS tuning or retraining")
-        elif avg_cumulative > avg_grill * 3:
-            print("\n[DIAGNOSIS] High ID turnover - backend may need tuning (match_distance, max_age)")
-        else:
-            print("\n[DIAGNOSIS] Stats look reasonable")
-    else:
-        print("No videos processed successfully")
-
-    # Save report
-    if args.output:
-        report = {
-            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "model": model_path,
-            "video_dir": video_dir,
-            "results": results,
-        }
-        with open(args.output, "w") as f:
-            json.dump(report, f, indent=2)
-        print(f"\nReport saved to: {args.output}")
+    report = {
+        "report_version": 1,
+        "created_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "manifest": {"path": str(args.manifest), "version": manifest["version"],
+                     "sha256": sha256(args.manifest)},
+        "model": {"path": str(args.model), "sha256": sha256(args.model)},
+        "config": {"confidence": args.confidence, "iou": args.iou,
+                   "image_size": args.image_size, "tracker": TRACKER_RULES},
+        "results": results,
+    }
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    print(f"Report: {args.output}")
 
 
 if __name__ == "__main__":
-    # Allow importing steak_packet from same directory when run as script
-    _dir = os.path.dirname(os.path.abspath(__file__))
-    if _dir not in sys.path:
-        sys.path.insert(0, _dir)
     main()

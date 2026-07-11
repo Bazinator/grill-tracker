@@ -42,12 +42,30 @@ struct RunStats {
   size_t max_grill_size = 0;
 };
 
-static void process_frame(std::vector<SteakPacket>& packets, steak::SteakTracker& tracker, RunStats& stats) {
+static void emit_state(const RunStats& stats, const steak::SteakTracker& tracker, FILE* out) {
+  if (!out) return;
+  const auto steaks = tracker.get_steaks();
+  std::fprintf(out, "{\"frame\":%llu,\"steaks\":[",
+               (unsigned long long)stats.frames_processed);
+  for (size_t i = 0; i < steaks.size(); ++i) {
+    const auto& s = steaks[i];
+    std::fprintf(out,
+      "%s{\"stable_id\":%d,\"cx\":%.2f,\"cy\":%.2f,\"confidence\":%.3f,\"miss_count\":%d}",
+      i ? "," : "", s.stable_id, (double)s.centroid_x, (double)s.centroid_y,
+      (double)s.confidence, s.miss_count);
+  }
+  std::fprintf(out, "]}\n");
+  std::fflush(out);
+}
+
+static void process_frame(std::vector<SteakPacket>& packets, steak::SteakTracker& tracker,
+                          RunStats& stats, FILE* state_out) {
   auto [deduped, new_steaks] = tracker.ingest(packets);
   stats.frames_processed++;
   stats.packets_total += packets.size();
   stats.dedupes_total += deduped;
   stats.max_grill_size = std::max(stats.max_grill_size, tracker.get_steaks().size());
+  emit_state(stats, tracker, state_out);
 
   const char* v = std::getenv("STEAK_VERBOSE");
   if (v && v[0] == '1') {
@@ -92,6 +110,8 @@ int main() {
   steak::Grill grill(25);
   steak::SteakTracker tracker(grill, 90.f, 40.f, 25);
   RunStats stats;
+  const char* state_path = std::getenv("STEAK_STATE_PATH");
+  FILE* state_out = state_path && state_path[0] ? std::fopen(state_path, "w") : nullptr;
 
   char count_buf[4];
   while (read_exact(STDIN_FILENO, count_buf, 4)) {
@@ -103,7 +123,7 @@ int main() {
 
     if (count == 0) {
       std::vector<SteakPacket> empty;
-      process_frame(empty, tracker, stats);
+      process_frame(empty, tracker, stats, state_out);
       continue;
     }
 
@@ -116,9 +136,10 @@ int main() {
     for (uint32_t i = 0; i < count; ++i)
       packets[i] = *reinterpret_cast<const SteakPacket*>(raw.data() + i * sizeof(SteakPacket));
 
-    process_frame(packets, tracker, stats);
+    process_frame(packets, tracker, stats, state_out);
   }
 
+  if (state_out) std::fclose(state_out);
   emit_stats(stats, tracker.cumulative_steaks());
   return 0;
 }

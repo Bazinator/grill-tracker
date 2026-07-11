@@ -2,10 +2,10 @@
 
 ## Ready for implementation
 
-- [ ] Add a versioned clip-manifest format with train, validation, and holdout groups.
-- [ ] Record model hash, thresholds, tracker rules, FPS, and manifest version in evaluation reports.
-- [ ] Add a saved-video review mode showing raw detections and state-engine IDs together.
-- [ ] Make the C++ state engine emit one overlay/state event per frame.
+- [x] Add a versioned clip-manifest format with train, validation, holdout, and unassigned groups.
+- [x] Record model hash, thresholds, tracker rules, FPS, and manifest version in evaluation reports.
+- [x] Add a saved-video review mode showing raw detections and state-engine IDs together.
+- [x] Make the C++ state engine emit one overlay/state event per frame.
 - [ ] Pass bounding boxes to the state engine and benchmark IoU-based deduplication.
 - [ ] Add an OpenCV-compatible stream URL input while keeping file input for tests.
 - [ ] Store runs and state transitions in SQLite.
