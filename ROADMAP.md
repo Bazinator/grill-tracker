@@ -72,7 +72,7 @@ The existing `packets_total`, `dedupes_total`, `max_grill_size`, and `cumulative
 - [x] Document the current pipeline and v1 boundary.
 - [x] Add a proprietary license.
 - [x] Make model and clip paths explicit everywhere; remove machine-specific defaults.
-- [ ] Make the initial Git commit and push it to the private remote.
+- [x] Make the initial Git commit and push it to the private remote.
 
 Exit gate: a new checkout plus private weights/data can run both synthetic tests and one real clip using documented commands.
 
