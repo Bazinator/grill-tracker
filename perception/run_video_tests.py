@@ -15,9 +15,6 @@ from pathlib import Path
 import cv2
 
 
-TRACKER_RULES = {"match_distance_px": 90, "dedupe_distance_px": 40, "max_age_frames": 25}
-
-
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as source:
@@ -108,6 +105,45 @@ def analyze(stats: dict) -> dict:
     return stats
 
 
+def evaluate_ground_truth(state_path: Path, truth_path: Path, fps: float) -> dict:
+    truth = json.loads(truth_path.read_text(encoding="utf-8"))
+    states = read_jsonl(state_path)
+    errors = []
+    exact = 0
+    for frame, state in states.items():
+        seconds = (frame - 1) / fps
+        expected = next((item["visible_steaks"] for item in truth.get("count_ranges", [])
+                         if item["start_seconds"] <= seconds < item["end_seconds"]), None)
+        if expected is not None:
+            error = abs(len(state.get("steaks", [])) - expected)
+            errors.append(error)
+            exact += error == 0
+
+    events = []
+    for event in truth.get("events", []):
+        if "visible_steaks_after" not in event:
+            continue
+        start_frame = int(event["seconds"] * fps) + 1
+        matched_frame = next((frame for frame in sorted(states)
+                              if frame >= start_frame
+                              and len(states[frame].get("steaks", [])) == event["visible_steaks_after"]), None)
+        events.append({
+            "type": event["type"],
+            "seconds": event["seconds"],
+            "visible_steaks_after": event["visible_steaks_after"],
+            "latency_seconds": round((matched_frame - start_frame) / fps, 3)
+            if matched_frame is not None else None,
+        })
+    return {
+        "path": str(truth_path),
+        "sha256": sha256(truth_path),
+        "count_samples": len(errors),
+        "count_mean_absolute_error": round(sum(errors) / len(errors), 3) if errors else None,
+        "count_exact_rate": round(exact / len(errors), 3) if errors else None,
+        "events": events,
+    }
+
+
 def run_pipeline(
     video: Path,
     model: Path,
@@ -115,6 +151,9 @@ def run_pipeline(
     confidence: float,
     iou: float,
     image_size: int,
+    match_distance: float,
+    dedupe_iou: float,
+    max_age: int,
     timeout: int,
 ) -> tuple[dict, Path, Path]:
     root = Path(__file__).resolve().parent.parent
@@ -128,6 +167,9 @@ def run_pipeline(
     state_path = artifacts / f"{safe_name}.state.jsonl"
     env = os.environ.copy()
     env["STEAK_STATE_PATH"] = str(state_path)
+    env["STEAK_MATCH_DISTANCE"] = str(match_distance)
+    env["STEAK_DEDUPE_IOU"] = str(dedupe_iou)
+    env["STEAK_MAX_AGE"] = str(max_age)
     start = time.monotonic()
     state_process = subprocess.Popen(
         [str(consumer)], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
@@ -174,6 +216,9 @@ def main() -> None:
     parser.add_argument("--confidence", type=float, default=0.4)
     parser.add_argument("--iou", type=float, default=0.4)
     parser.add_argument("--image-size", type=int, default=640)
+    parser.add_argument("--match-distance", type=float, default=90.0)
+    parser.add_argument("--dedupe-iou", type=float, default=0.2)
+    parser.add_argument("--max-age", type=int, default=25)
     parser.add_argument("--timeout", type=int, default=3600)
     parser.add_argument("--max-videos", type=int)
     parser.add_argument("--list-only", action="store_true")
@@ -209,15 +254,22 @@ def main() -> None:
         try:
             stats, detections, states = run_pipeline(
                 video, args.model, artifacts, args.confidence, args.iou,
-                args.image_size, args.timeout,
+                args.image_size, args.match_distance, args.dedupe_iou,
+                args.max_age, args.timeout,
             )
             review = None
             if args.reviews_dir:
                 review = args.reviews_dir / f"{video.stem}.review.mp4"
                 render_review(video, detections, states, review)
+            ground_truth = None
+            if clip.get("ground_truth"):
+                truth_path = Path(clip["ground_truth"])
+                if not truth_path.is_absolute():
+                    truth_path = (args.video_dir / truth_path).resolve()
+                ground_truth = evaluate_ground_truth(states, truth_path, info["fps"])
             results.append({
                 "clip": clip["path"], "split": clip["split"],
-                "ground_truth": clip.get("ground_truth"), "video": info,
+                "ground_truth": ground_truth, "video": info,
                 "stats": stats, "review": str(review) if review else None,
             })
         except Exception as error:
@@ -232,7 +284,10 @@ def main() -> None:
                      "sha256": sha256(args.manifest)},
         "model": {"path": str(args.model), "sha256": sha256(args.model)},
         "config": {"confidence": args.confidence, "iou": args.iou,
-                   "image_size": args.image_size, "tracker": TRACKER_RULES},
+                   "image_size": args.image_size,
+                   "tracker": {"match_distance_px": args.match_distance,
+                               "dedupe_iou": args.dedupe_iou,
+                               "max_age_frames": args.max_age}},
         "results": results,
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)

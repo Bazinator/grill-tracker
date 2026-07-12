@@ -1,15 +1,15 @@
 """
 Wire format for SteakPacket: matches core-engine/include/SteakPacket.h.
-Per-frame wire format: count(4 bytes LE) + N × SteakPacket(20 bytes).
+Per-frame wire format: count(4 bytes LE) + N x SteakPacket(36 bytes).
 """
 from __future__ import annotations
 
 import struct
 from typing import Any, List
 
-# Layout for one packet: int32_t, float, float, float, uint32_t (20 bytes)
-PACKET_FORMAT = "<ifffI"
-STEAK_PACKET_SIZE = 20
+# int32 id, bbox (4 floats), centroid (2 floats), confidence, uint32 frame.
+PACKET_FORMAT = "<ifffffffI"
+STEAK_PACKET_SIZE = 36
 
 
 def pack_frame(state: List[dict]) -> bytes:
@@ -27,6 +27,7 @@ def pack_frame(state: List[dict]) -> bytes:
         buf += struct.pack(
             PACKET_FORMAT,
             int(s["steak_id"]),
+            *map(float, bbox),
             float(centroid_x),
             float(centroid_y),
             float(s["conf"]),

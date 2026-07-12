@@ -17,7 +17,7 @@ Produces:
 
 ## Pipeline
 
-Wire format (per frame): **count** (4 bytes LE) + **N × SteakPacket** (20 bytes each). See `include/SteakPacket.h` and `perception/steak_packet.py`.
+Wire format (per frame): **count** (4 bytes LE) + **N × SteakPacket** (36 bytes each). See `include/SteakPacket.h` and `perception/steak_packet.py`.
 
 **Run the pipeline:**
 
@@ -74,7 +74,7 @@ See **[TESTING.md](TESTING.md)** for:
 
 - How to run and interpret test scenarios
 - How to diagnose issues: **model vs backend**
-- Tuning parameters (match_distance, dedupe_distance, max_age)
+- Tuning parameters (`STEAK_MATCH_DISTANCE`, `STEAK_DEDUPE_IOU`, `STEAK_MAX_AGE`)
 - Decision tree for troubleshooting
 
 ## Roadmap

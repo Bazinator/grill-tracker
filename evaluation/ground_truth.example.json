@@ -5,7 +5,7 @@
     {"start_seconds": 0.0, "end_seconds": 10.0, "visible_steaks": 0}
   ],
   "events": [
-    {"seconds": 10.0, "type": "add", "notes": "Example only; replace after inspection"}
+    {"seconds": 10.0, "type": "add", "visible_steaks_after": 1, "notes": "Example only; replace after inspection"}
   ],
   "conditions": ["example"]
 }

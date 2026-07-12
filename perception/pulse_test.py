@@ -9,14 +9,16 @@ from steak_packet import PACKET_FORMAT, pack_frame
 
 import struct
 
-# Single packet (legacy format, one 20-byte blob)
-packed_data = struct.pack(PACKET_FORMAT, 7, 120.5, 300.2, 0.98, 1600)
+# Single packet fixture: id, box, centroid, confidence, frame.
+packed_data = struct.pack(
+    PACKET_FORMAT, 7, 100.0, 250.2, 141.0, 350.2, 120.5, 300.2, 0.98, 1600
+)
 print(f"Packed data size: {len(packed_data)} bytes")
 print(f"Hex Dump: {packed_data.hex(' ')}")
 with open(os.path.join(_dir, "steak_pulse_test.bin"), "wb") as f:
     f.write(packed_data)
 
-# Streaming format: count(4) + N×SteakPacket(20) for C++ stdin tests
+# Streaming format: count(4) + N x SteakPacket(36) for C++ stdin tests
 # centroid (120.5, 300.2) from bbox (x1+x2)/2, (y1+y2)/2
 state = [{"steak_id": 7, "bbox": [100.0, 250.2, 141.0, 350.2], "conf": 0.98, "last_seen_frame": 1600}]
 stream_bytes = pack_frame(state)

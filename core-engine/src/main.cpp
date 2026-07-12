@@ -1,6 +1,6 @@
 /*
  * Pipeline consumer: reads binary frames from stdin.
- * Wire format: count(4 bytes LE) + N × SteakPacket(20 bytes).
+ * Wire format: count(4 bytes LE) + N x SteakPacket(36 bytes).
  * Build and run: python3 -u perception/testModel.py --pipe --video /path 2>/dev/null | ./steak_consumer
  * steak_state Grill + SteakTracker reduce dual detections and keep stable IDs.
  * STEAK_VERBOSE=1 prints packets and Grill state to stderr.
@@ -32,6 +32,24 @@ static bool read_exact(int fd, char* buf, size_t n) {
     done += static_cast<size_t>(r);
   }
   return true;
+}
+
+static float env_float(const char* name, float fallback, float minimum, float maximum) {
+  const char* value = std::getenv(name);
+  if (!value) return fallback;
+  char* end = nullptr;
+  const float parsed = std::strtof(value, &end);
+  return end != value && *end == '\0' && parsed >= minimum && parsed <= maximum
+      ? parsed : fallback;
+}
+
+static int env_int(const char* name, int fallback, int minimum, int maximum) {
+  const char* value = std::getenv(name);
+  if (!value) return fallback;
+  char* end = nullptr;
+  const long parsed = std::strtol(value, &end, 10);
+  return end != value && *end == '\0' && parsed >= minimum && parsed <= maximum
+      ? static_cast<int>(parsed) : fallback;
 }
 
 // Run statistics structure
@@ -107,8 +125,11 @@ static void emit_stats(const RunStats& stats, int cumulative_steaks) {
 }
 
 int main() {
-  steak::Grill grill(25);
-  steak::SteakTracker tracker(grill, 90.f, 40.f, 25);
+  const float match_distance = env_float("STEAK_MATCH_DISTANCE", 90.f, 1.f, 10000.f);
+  const float dedupe_iou = env_float("STEAK_DEDUPE_IOU", 0.2f, 0.f, 1.f);
+  const int max_age = env_int("STEAK_MAX_AGE", 25, 0, 100000);
+  steak::Grill grill(max_age);
+  steak::SteakTracker tracker(grill, match_distance, dedupe_iou);
   RunStats stats;
   const char* state_path = std::getenv("STEAK_STATE_PATH");
   FILE* state_out = state_path && state_path[0] ? std::fopen(state_path, "w") : nullptr;

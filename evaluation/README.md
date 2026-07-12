@@ -8,7 +8,7 @@
 
 All committed clips begin as `unassigned`. The owner must group clips by recording shift so near-identical frames cannot leak between train, validation, and holdout data.
 
-`ground_truth.example.json` defines the minimal human annotation: visible-count time ranges, key add/remove/occlusion events, and scene conditions. Copy it beside private evaluation data, label it after viewing the clip, and set the manifest's `ground_truth` field. Do not commit private footage.
+`ground_truth.example.json` defines the minimal human annotation: visible-count time ranges, key add/remove/occlusion events, the visible count expected after each event, and scene conditions. Copy it beside private evaluation data, label it after viewing the clip, and set the manifest's `ground_truth` field relative to `--video-dir`. Do not commit private footage. The runner calculates count mean absolute error, exact-count rate, and event latency from this sidecar.
 
 Run one clip and produce a reproducible report plus review video:
 

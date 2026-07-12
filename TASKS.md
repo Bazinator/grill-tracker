@@ -6,7 +6,7 @@
 - [x] Record model hash, thresholds, tracker rules, FPS, and manifest version in evaluation reports.
 - [x] Add a saved-video review mode showing raw detections and state-engine IDs together.
 - [x] Make the C++ state engine emit one overlay/state event per frame.
-- [ ] Pass bounding boxes to the state engine and benchmark IoU-based deduplication.
+- [x] Pass bounding boxes to the state engine and add configurable IoU-based deduplication.
 - [ ] Add an OpenCV-compatible stream URL input while keeping file input for tests.
 - [ ] Store runs and state transitions in SQLite.
 
@@ -16,6 +16,10 @@
 - [ ] Choose which clips belong to train, validation, and untouched holdout sets.
 - [ ] Define acceptable count error, add/remove latency, ID-switch rate, and minimum FPS.
 - [ ] Review rendered failures and identify cases where the ground truth or model is wrong.
+- [ ] Follow `MANUAL_REVIEW.md`, run the bounded validation sweep, and check adjacent-steak merges.
+- [ ] Decide whether false births justify confirmation frames.
+- [ ] Freeze v1 defaults and run the untouched holdout once.
+- [ ] Decide whether count/event metrics justify the added cost of frame-level box labels.
 - [ ] Confirm the production camera transport after testing the restaurant network.
 
 Work from the first unchecked item whose prerequisites are complete. Do not block implementation work on labeling tasks that can be developed against a small example manifest.

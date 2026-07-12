@@ -28,7 +28,7 @@ int main() {
     std::cout << "conf: " << packet.confidence << std::endl;
     std::cout << "timestamp: " << packet.timestamp << std::endl;
   } else {
-    std::cerr << "Error. We only read " << input.gcount() << " bytes. Expected 20!" << std::endl;
+    std::cerr << "Error. We only read " << input.gcount() << " bytes. Expected 36!" << std::endl;
   }
 
   input.close();

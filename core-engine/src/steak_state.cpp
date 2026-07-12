@@ -10,6 +10,18 @@ static float dist(float x1, float y1, float x2, float y2) {
   return std::sqrt(dx * dx + dy * dy);
 }
 
+static float iou(const SteakPacket& a, const SteakPacket& b) {
+  const float left = std::max(a.bbox_x1, b.bbox_x1);
+  const float top = std::max(a.bbox_y1, b.bbox_y1);
+  const float right = std::min(a.bbox_x2, b.bbox_x2);
+  const float bottom = std::min(a.bbox_y2, b.bbox_y2);
+  const float intersection = std::max(0.f, right - left) * std::max(0.f, bottom - top);
+  const float area_a = std::max(0.f, a.bbox_x2 - a.bbox_x1) * std::max(0.f, a.bbox_y2 - a.bbox_y1);
+  const float area_b = std::max(0.f, b.bbox_x2 - b.bbox_x1) * std::max(0.f, b.bbox_y2 - b.bbox_y1);
+  const float total = area_a + area_b - intersection;
+  return total > 0.f ? intersection / total : 0.f;
+}
+
 // --- Grill ------------------------------------------------------------------
 
 Grill::Grill(int max_age) : next_id_(1), max_age_(max_age) {}
@@ -57,11 +69,10 @@ std::vector<TrackedSteak> Grill::get_steaks() const {
 
 // --- SteakTracker -----------------------------------------------------------
 
-SteakTracker::SteakTracker(Grill& grill, float match_distance, float dedupe_distance, int max_age)
+SteakTracker::SteakTracker(Grill& grill, float match_distance, float dedupe_iou)
     : grill_(grill),
       match_distance_(match_distance),
-      dedupe_distance_(dedupe_distance),
-      max_age_(max_age),
+      dedupe_iou_(dedupe_iou),
       last_frame_(0) {}
 
 std::pair<size_t, size_t> SteakTracker::ingest(const std::vector<SteakPacket>& packets) {
@@ -77,7 +88,7 @@ std::pair<size_t, size_t> SteakTracker::ingest(const std::vector<SteakPacket>& p
     return {0, 0};
   }
 
-  // Same-frame dedupe: cluster by centroid distance < dedupe_distance, keep one per cluster (highest conf).
+  // Same-frame dedupe: merge overlapping boxes and keep the highest confidence.
   std::vector<SteakPacket> reps;
   std::vector<bool> used(packets.size(), false);
   for (size_t i = 0; i < packets.size(); ++i) {
@@ -85,9 +96,7 @@ std::pair<size_t, size_t> SteakTracker::ingest(const std::vector<SteakPacket>& p
     const SteakPacket* best = &packets[i];
     for (size_t j = i + 1; j < packets.size(); ++j) {
       if (used[j]) continue;
-      float d = dist(packets[i].centroid_x, packets[i].centroid_y,
-                    packets[j].centroid_x, packets[j].centroid_y);
-      if (d <= dedupe_distance_) {
+      if (iou(packets[i], packets[j]) >= dedupe_iou_) {
         used[j] = true;
         if (packets[j].confidence > best->confidence) best = &packets[j];
       }

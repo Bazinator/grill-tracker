@@ -84,7 +84,7 @@ stable.           |
                  YES               NO
                   |                 |
          Model produces      Backend issue:
-         many duplicates     - Tune match_distance, dedupe_distance, max_age
+         many duplicates     - Tune match distance, dedupe IoU, and max age
          (retrain or NMS)
 ```
 
@@ -92,18 +92,18 @@ stable.           |
 
 ## 4. Tuning Backend Parameters
 
-All parameters are in `core-engine/src/main.cpp` (passed to SteakTracker constructor):
+The evaluator passes these environment-backed settings to the C++ engine:
 
 | Parameter | Default | Effect |
 |-----------|---------|--------|
-| **match_distance** | 90 px | Max centroid distance to associate a packet with an existing steak. Increase if steaks move fast between frames. |
-| **dedupe_distance** | 40 px | Same-frame packets within this distance are merged. Decrease to be stricter; increase if model produces many near-overlaps. |
-| **max_age** | 25 frames | Frames without a match before a steak is pruned. Increase if detections flicker often; decrease to drop phantoms faster. |
+| **STEAK_MATCH_DISTANCE** | 90 px | Max centroid distance to associate a packet with an existing steak. Increase if steaks move fast between frames. |
+| **STEAK_DEDUPE_IOU** | 0.20 | Same-frame boxes at or above this IoU are merged. Raise to merge fewer boxes; lower to merge more. |
+| **STEAK_MAX_AGE** | 25 frames | Frames without a match before a steak is pruned. Increase if detections flicker often; decrease to drop phantoms faster. |
 
 ### How to tune
 
-1. Run on a test video and collect stats.
-2. If cumulative_steaks >> physical count: try increasing `max_age` (detection flicker) or `match_distance` (fast movement).
+1. Label validation clips and run the bounded sweep in `MANUAL_REVIEW.md`.
+2. If cumulative_steaks >> physical count: try increasing max age (detection flicker) or match distance (fast movement).
 3. If dedupes_total is very high: model is producing many overlapping boxes; consider retraining or adjusting YOLO NMS threshold in `testModel.py`.
 4. Re-run and compare stats.
 
@@ -167,7 +167,7 @@ done
 - **Backend issues** (Grill/SteakTracker):
   - cumulative_steaks much higher than physical count (ID flicker)
   - max_grill_size wrong (phantom or missing steaks)
-  - Fix: tune `match_distance`, `dedupe_distance`, `max_age` in `main.cpp`
+  - Fix: sweep `STEAK_MATCH_DISTANCE`, `STEAK_DEDUPE_IOU`, and `STEAK_MAX_AGE` on labeled validation clips.
 
 Use synthetic scenarios to isolate: if `stable` and `drift` fail, it's backend; if real video fails but synthetics pass, it's model.
 

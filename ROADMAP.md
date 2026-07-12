@@ -35,7 +35,7 @@ The current implementation is a baseline, not a final policy.
 | --- | ---: | --- |
 | Detection confidence | `0.40` | Sweep on labeled validation clips; optimize recall while bounding false steaks. |
 | YOLO IoU/NMS | `0.40` | Sweep with confidence; measure duplicate and missed detections. |
-| Same-frame dedupe | centroid distance `40 px` | Prefer box IoU once boxes cross the C++ boundary; validate crowded-grill merges. |
+| Same-frame dedupe | box IoU `0.20` | Sweep on validation clips; check crowded-grill over-merges. |
 | Frame association | nearest centroid within `90 px` | Measure ID switches; add motion/IoU only if nearest-centroid misses the gate. |
 | Missing grace period | `25 frames` | Express as time, then convert using processed FPS; test short occlusion versus removed steaks. |
 | New steak confirmation | immediate | Require consecutive observations only if false-positive births remain material. |
@@ -88,13 +88,13 @@ Exit gate: the automated benchmark and review output are ready; accuracy compari
 
 ### Phase 2 — calibrate detection and state rules
 
-- [ ] Sweep confidence and NMS thresholds on validation clips.
-- [ ] Pass bounding boxes into the state engine so dedupe can use IoU, not centroid distance alone.
-- [ ] Sweep association distance and missing duration using labeled add/remove/occlusion cases.
-- [ ] Add confirmation frames only if measured false births require it.
-- [ ] Freeze v1 defaults and acceptance thresholds in the benchmark config.
+- [x] Add bounded tooling to sweep confidence, NMS, association distance, dedupe IoU, and missing duration.
+- [x] Pass bounding boxes into the state engine and use configurable IoU deduplication.
+- [ ] **Owner:** label validation clips, run the sweep, and visually check adjacent-steak merges.
+- [ ] Add confirmation frames only if owner-reviewed results show material false births.
+- [ ] **Owner:** define acceptance thresholds, then freeze v1 defaults and run holdout once.
 
-Exit gate: holdout metrics meet agreed count accuracy, add/remove latency, ID stability, and inference speed targets.
+Exit gate: automation is ready; completion requires owner labels, acceptance thresholds, visual review, and one untouched holdout run.
 
 ### Phase 3 — live home service
 

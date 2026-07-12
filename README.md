@@ -18,6 +18,7 @@ The synthetic state-engine tests pass. The current model does not yet have relia
 - `.devcontainer/`: Ubuntu development environment with the C++ and Python dependencies.
 - `ROADMAP.md`: v1 architecture, acceptance gates, and ordered work.
 - `TASKS.md`: implementation queue separated from owner-required labeling and product decisions.
+- `MANUAL_REVIEW.md`: owner workflow for splits, labels, review videos, and parameter sweeps.
 
 The private dataset, test videos, trained weights, and previous run artifacts are not part of the repository. Pass their paths explicitly when running inference or training.
 
@@ -65,12 +66,12 @@ python3 train/train.py --data /path/to/dataset/data.yaml --model yolov12n.pt
 
 The C++ state engine currently:
 
-1. Merges same-frame detections whose centroids are within `40 px`, keeping the higher-confidence detection.
+1. Merges same-frame boxes whose IoU is at least `0.20`, keeping the higher-confidence detection.
 2. Greedily associates each remaining detection with the nearest unmatched steak within `90 px`.
 3. Keeps an unmatched steak for `25` missed frames, then removes it.
 4. Assigns a new stable ID to every unmatched detection.
 
-These values are hard-coded baselines in `core-engine/src/main.cpp`. They must be calibrated against labeled clips before v1; see [`ROADMAP.md`](ROADMAP.md).
+These are configurable baselines. They must be calibrated against labeled clips before v1; see [`ROADMAP.md`](ROADMAP.md).
 
 ## GitHub readiness
 

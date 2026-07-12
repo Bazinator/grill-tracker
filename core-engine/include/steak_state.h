@@ -41,14 +41,12 @@ class Grill {
   int max_age_;
 };
 
-// Deduplicates same-frame detections, associates packets to steaks by position, updates Grill.
-// Tuning: match_distance (px, e.g. 80--100), dedupe_distance (px, e.g. 30--50), max_age (frames).
+// Deduplicates same-frame detections by box IoU, then associates by centroid distance.
 class SteakTracker {
  public:
   SteakTracker(Grill& grill,
               float match_distance = 90.f,
-              float dedupe_distance = 40.f,
-              int max_age = 25);
+              float dedupe_iou = 0.2f);
 
   // Returns (deduped_count, new_steaks_created) for stats collection
   std::pair<size_t, size_t> ingest(const std::vector<SteakPacket>& packets);
@@ -58,8 +56,7 @@ class SteakTracker {
  private:
   Grill& grill_;
   float match_distance_;
-  float dedupe_distance_;
-  int max_age_;
+  float dedupe_iou_;
   uint32_t last_frame_;
 };
 
